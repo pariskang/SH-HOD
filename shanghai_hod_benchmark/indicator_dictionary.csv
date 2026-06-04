@@ -1,0 +1,17 @@
+code,name,unit,module,low,high,decimals,threshold,higher_is_risk
+appointment_registrations,预约挂号人次,人次,M01,35,220,0,,False
+outpatient_emergency_visits,门急诊人次,人次,M02,60,320,0,,False
+discharges,出院人次,人次,M03,6,65,0,,False
+inpatient_surgeries,住院手术人次,人次,M04,2,40,0,,False
+key_disease_cases,重点病种病例数,例,M05,0,35,0,,False
+avg_inpatient_cost,住院均次费用,元,M06,7200,38000,2,30000,True
+inpatient_drug_ratio,住院药占比,比例,M07,0.18,0.42,4,0.35,True
+inpatient_consumable_ratio,住院耗材比,比例,M07,0.12,0.34,4,0.28,True
+innovative_drug_device_cases,新优药械使用例数,例,M08,0,22,0,,False
+national_negotiation_drug_cases,国谈药品使用例数,例,M08,0,35,0,,False
+special_international_outpatient_ratio,特需国际医疗门诊人次占比,比例,M09,0.01,0.16,4,,False
+rational_drug_alerts,合理用药预警数,条,M10,0,18,0,12,True
+class_iii_incision_infection_rate,三类切口感染率,比例,M11,0.001,0.032,4,0.02,True
+return_rate,重返率,比例,M12,0.004,0.055,4,0.04,True
+return_visits,重返人次,人次,M12,0,18,0,12,True
+bed_occupancy_rate,床位使用率,比例,M03,0.62,0.98,4,0.94,True

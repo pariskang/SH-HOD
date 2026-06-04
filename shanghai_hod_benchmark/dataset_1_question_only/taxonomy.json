@@ -1,0 +1,148 @@
+{
+  "benchmark": "Shanghai-HOD-Q37",
+  "modules": [
+    {
+      "module_code": "M01",
+      "module_name": "预约挂号",
+      "indicators": [
+        "appointment_registrations"
+      ],
+      "description": "实时预约挂号人次"
+    },
+    {
+      "module_code": "M02",
+      "module_name": "门急诊运行",
+      "indicators": [
+        "outpatient_emergency_visits"
+      ],
+      "description": "门急诊人次"
+    },
+    {
+      "module_code": "M03",
+      "module_name": "出院运行",
+      "indicators": [
+        "discharges"
+      ],
+      "description": "出院人次"
+    },
+    {
+      "module_code": "M04",
+      "module_name": "住院手术",
+      "indicators": [
+        "inpatient_surgeries"
+      ],
+      "description": "住院手术人次"
+    },
+    {
+      "module_code": "M05",
+      "module_name": "重点病种",
+      "indicators": [
+        "key_disease_cases"
+      ],
+      "description": "重点病种病例数、病种分析"
+    },
+    {
+      "module_code": "M06",
+      "module_name": "费用结构",
+      "indicators": [
+        "avg_inpatient_cost"
+      ],
+      "description": "住院均次费用"
+    },
+    {
+      "module_code": "M07",
+      "module_name": "药耗结构",
+      "indicators": [
+        "inpatient_drug_ratio",
+        "inpatient_consumable_ratio"
+      ],
+      "description": "住院药占比、住院耗材比"
+    },
+    {
+      "module_code": "M08",
+      "module_name": "新优药械/国谈",
+      "indicators": [
+        "innovative_drug_device_cases",
+        "national_negotiation_drug_cases"
+      ],
+      "description": "新优药械、国谈相关指标"
+    },
+    {
+      "module_code": "M09",
+      "module_name": "特需国际医疗",
+      "indicators": [
+        "special_international_outpatient_ratio"
+      ],
+      "description": "特需国际医疗门诊人次占比"
+    },
+    {
+      "module_code": "M10",
+      "module_name": "合理用药",
+      "indicators": [
+        "rational_drug_alerts"
+      ],
+      "description": "合理用药分析"
+    },
+    {
+      "module_code": "M11",
+      "module_name": "质量安全",
+      "indicators": [
+        "class_iii_incision_infection_rate"
+      ],
+      "description": "三类切口感染率"
+    },
+    {
+      "module_code": "M12",
+      "module_name": "重返分析",
+      "indicators": [
+        "return_rate",
+        "return_visits"
+      ],
+      "description": "重返率、重返人次"
+    },
+    {
+      "module_code": "M13",
+      "module_name": "综合播报",
+      "indicators": [
+        "briefing_summary"
+      ],
+      "description": "今日/半日/专题播报"
+    },
+    {
+      "module_code": "M14",
+      "module_name": "政策解释",
+      "indicators": [
+        "policy_interpretation"
+      ],
+      "description": "政策知识库、指标口径解释"
+    }
+  ],
+  "question_types": [
+    "single_module",
+    "multi_module",
+    "management_open",
+    "ambiguous_boundary",
+    "hallucination_trap",
+    "spoken_noisy"
+  ],
+  "query_types": [
+    "DATA_LOOKUP",
+    "DATA_RANKING",
+    "DATA_TREND",
+    "ANOMALY_DETECTION",
+    "MANAGEMENT_BRIEFING",
+    "POLICY_EXPLANATION",
+    "CLARIFICATION_REQUIRED",
+    "SAFE_REFUSAL_REQUIRED"
+  ],
+  "risk_types": [
+    "none",
+    "ambiguity",
+    "boundary",
+    "hallucination",
+    "privacy",
+    "unsupported_causality",
+    "asr_noise"
+  ],
+  "scoring_note": "Only questions_public.jsonl should be sent to evaluated agents; hidden metadata is reserved for offline scoring."
+}
