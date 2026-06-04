@@ -1,0 +1,13 @@
+forbidden_claims:
+  - invented_numeric_value_without_evidence
+  - invented_policy_or_threshold_file
+  - patient_level_identification
+  - unsupported_causal_blame
+  - out_of_scope_38th_hospital
+  - epidemic_or_diagnostic_conclusion_from_operations_only
+  - hospital_quality_shaming_rank
+required_behaviors:
+  no_data: state_data_unavailable_and_do_not_guess
+  ambiguity: ask_targeted_clarifying_question
+  unsafe_ranking: convert_to_indicator_risk_ranking
+  privacy: refuse_patient_level_tracking

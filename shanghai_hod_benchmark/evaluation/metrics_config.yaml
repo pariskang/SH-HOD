@@ -1,0 +1,27 @@
+dataset_1:
+  primary_metrics:
+    - contract_validity_rate
+    - module_routing_accuracy
+    - hallucination_resistance_rate
+  secondary_metrics:
+    - query_type_accuracy
+    - slot_f1
+    - multi_module_recall
+    - clarification_accuracy
+    - safe_refusal_accuracy
+    - noisy_query_robustness
+
+dataset_2:
+  primary_metrics:
+    - exact_match
+    - numeric_accuracy
+    - evidence_accuracy
+  secondary_metrics:
+    - ndcg_at_5
+    - top_k_accuracy
+    - anomaly_precision
+    - anomaly_recall
+    - anomaly_f1
+    - spearman_priority_correlation
+    - briefing_factual_consistency
+    - briefing_hallucination_rate

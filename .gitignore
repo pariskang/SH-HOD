@@ -1,0 +1,7 @@
+.cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Binary exports are generated locally and intentionally not committed.
+shanghai_hod_benchmark/indicator_dictionary.xlsx
+shanghai_hod_benchmark/dataset_2_data_qa/*.parquet
