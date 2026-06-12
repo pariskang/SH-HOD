@@ -31,7 +31,21 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from benchmark_schema import HOSPITAL_GROUPS, INDICATORS, MODULES, indicator_by_code, module_by_code
+from benchmark_schema import (
+    CONTEXT_TIERS,
+    DIFFICULTY_BY_TASK,
+    DIFFICULTY_LEVELS,
+    HOSPITAL_GROUPS,
+    INDICATORS,
+    LONG_CONTEXT_MIN_TOKENS,
+    MEDIUM_CONTEXT_MAX_TOKENS,
+    MODULES,
+    SHORT_CONTEXT_MAX_TOKENS,
+    estimate_tokens,
+    indicator_by_code,
+    module_by_code,
+    modules_for_indicators,
+)
 from litellm_minimax import LiteLLMConfig, litellm_available, polish_briefing, rewrite_question
 from data_sources import ingest_csv
 
@@ -116,6 +130,13 @@ def build_taxonomy() -> None:
         "question_types": ["single_module", "multi_module", "management_open", "ambiguous_boundary", "hallucination_trap", "spoken_noisy"],
         "query_types": ["DATA_LOOKUP", "DATA_RANKING", "DATA_TREND", "ANOMALY_DETECTION", "MANAGEMENT_BRIEFING", "POLICY_EXPLANATION", "CLARIFICATION_REQUIRED", "SAFE_REFUSAL_REQUIRED"],
         "risk_types": ["none", "ambiguity", "boundary", "hallucination", "privacy", "unsupported_causality", "asr_noise"],
+        "difficulty_levels": list(DIFFICULTY_LEVELS),
+        "dataqa_module_scopes": ["single_module", "cross_module"],
+        "dataqa_context_tiers": {
+            "short": f"<= {SHORT_CONTEXT_MAX_TOKENS} estimated tokens of source rows",
+            "medium": f"<= {MEDIUM_CONTEXT_MAX_TOKENS} estimated tokens of source rows",
+            "long": f"> {LONG_CONTEXT_MIN_TOKENS} estimated tokens of source rows",
+        },
         "scoring_note": "Only questions_public.jsonl should be sent to evaluated agents; hidden metadata is reserved for offline scoring.",
     }
     (DATASET1 / "taxonomy.json").write_text(json.dumps(taxonomy, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -174,6 +195,18 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
     for time in time_phrases:
         for template, modules, indicators in multi_specs:
             rows.append(q37_row(template.format(time=time), "multi_module", modules, "DATA_TREND", {"hospital_scope": "all_37_hospitals", "time_range": time, "indicator": indicators}, "hard"))
+
+    extreme_specs = [
+        ("{time}，请找出门急诊人次明显上升、住院药占比超过预警线、且重返率同步升高的医院，按管理优先级说明前三家的复核重点。", ["M02", "M07", "M12"], ["outpatient_emergency_visits", "inpatient_drug_ratio", "return_rate"], "ANOMALY_DETECTION"),
+        ("对比{time}与上一个监测窗口，哪些医院住院均次费用、住院耗材比、合理用药预警三项同时恶化？这类组合风险应优先通报给哪个管理条线？", ["M06", "M07", "M10"], ["avg_inpatient_cost", "inpatient_consumable_ratio", "rational_drug_alerts"], "DATA_TREND"),
+        ("{time}，请综合住院手术人次、三类切口感染率与重返人次，识别质量安全压力最大的医院，并说明哪些结论只能提示指标共现、不能下因果判断。", ["M04", "M11", "M12"], ["inpatient_surgeries", "class_iii_incision_infection_rate", "return_visits"], "MANAGEMENT_BRIEFING"),
+        ("{time}，若同时考虑预约挂号、门急诊人次与床位使用率，哪些医院出现服务量向住院端传导的压力？给出判断依据并指出现有数据的不足。", ["M01", "M02", "M03"], ["appointment_registrations", "outpatient_emergency_visits", "bed_occupancy_rate"], "DATA_TREND"),
+        ("{time}，请基于国谈药品、新优药械与住院药占比的组合变化，评估政策落实与控费目标是否存在张力，并列出需要进一步澄清的口径问题。", ["M08", "M07"], ["national_negotiation_drug_cases", "innovative_drug_device_cases", "inpatient_drug_ratio"], "MANAGEMENT_BRIEFING"),
+        ("{time}，构建一份跨模块风险清单：服务量（门急诊）、费用（均次费用）、药耗（药占比和耗材比）、质量（三类切口感染率）各取最值得关注的一家医院，并说明排序逻辑。", ["M02", "M06", "M07", "M11"], ["outpatient_emergency_visits", "avg_inpatient_cost", "inpatient_drug_ratio", "inpatient_consumable_ratio", "class_iii_incision_infection_rate"], "MANAGEMENT_BRIEFING"),
+    ]
+    for time in time_phrases:
+        for template, modules, indicators, query_type in extreme_specs:
+            rows.append(q37_row(template.format(time=time), "multi_module", modules, query_type, {"hospital_scope": "all_37_hospitals", "time_range": time, "indicator": indicators}, "extreme"))
 
     management = [
         "请用院领导汇报口径总结{time}37家医院运营情况。",
@@ -244,7 +277,21 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
         variant_idx += 1
         deduped.append(base)
 
-    result = deduped[:target_count]
+    # Round-robin across difficulty levels so truncation keeps 4-level coverage at any target_count.
+    groups = {level: [row for row in deduped if row["difficulty"] == level] for level in DIFFICULTY_LEVELS}
+    cursors = {level: 0 for level in DIFFICULTY_LEVELS}
+    result: list[dict[str, Any]] = []
+    while len(result) < target_count:
+        progressed = False
+        for level in DIFFICULTY_LEVELS:
+            if len(result) >= target_count:
+                break
+            if cursors[level] < len(groups[level]):
+                result.append(groups[level][cursors[level]])
+                cursors[level] += 1
+                progressed = True
+        if not progressed:
+            break
     for idx, row in enumerate(result, 1):
         row["question_id"] = f"Q_ONLY_{idx:06d}"
     return result
@@ -257,9 +304,14 @@ def validate_q37_rows(rows: list[dict[str, Any]]) -> None:
         missing = required - row.keys()
         if missing:
             raise ValueError(f"Q37 row missing fields: {missing}")
+        if row["difficulty"] not in DIFFICULTY_LEVELS:
+            raise ValueError(f"Q37 row {row['question_id']} has invalid difficulty {row['difficulty']}")
         if row["question_id"] in ids:
             raise ValueError(f"Duplicate question_id: {row['question_id']}")
         ids.add(row["question_id"])
+    covered = {row["difficulty"] for row in rows}
+    if set(DIFFICULTY_LEVELS) - covered:
+        raise ValueError(f"Q37 missing difficulty levels: {set(DIFFICULTY_LEVELS) - covered}")
 
 
 def write_dataset1(target_count: int, use_litellm: bool = False) -> None:
@@ -439,7 +491,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             {"question": f"{row['timestamp_start']}至{row['timestamp_end']}，{row['hospital_id']}{row['indicator_name']}是多少？", "task_type": "direct_lookup", "required_indicators": [row["indicator_code"]], "required_time_range": f"{row['timestamp_start']}/{row['timestamp_end']}", "answer_type": "exact_value"},
             {"final_answer": f"{row['hospital_id']}在{row['timestamp_start']}至{row['timestamp_end']}的{row['indicator_name']}为{fmt_value(row_value(row), row['unit'])}。", "answer_value": {"hospital_id": row["hospital_id"], "indicator_code": row["indicator_code"], "value": row_value(row), "unit": row["unit"]}, "calculation": "按医院、时间窗和指标代码精确过滤records.csv。", "confidence": "high"},
             [row["row_id"]], use_litellm)
-        if len(questions) >= max_questions * 0.18:
+        if len(questions) >= max_questions * 0.16:
             break
 
     # B. cross-hospital ranking
@@ -457,7 +509,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             {"question": f"{ts_start}至{ts_end}，{indicator.name}排名前5的医院有哪些？", "task_type": "cross_hospital_ranking", "required_indicators": [indicator_code], "required_time_range": f"{ts_start}/{ts_end}", "answer_type": "ranking"},
             {"final_answer": f"{ts_start}至{ts_end}，{indicator.name}排名前5为：{top_desc}。", "answer_value": [{"hospital_id": row["hospital_id"], "indicator_code": indicator_code, "value": row_value(row), "unit": row["unit"]} for row in top_rows], "calculation": f"比较该时间窗所有医院{indicator_code}指标，按数值降序取前5。", "confidence": "high"},
             evidence, use_litellm)
-        if len(questions) >= max_questions * 0.34:
+        if len(questions) >= max_questions * 0.30:
             break
 
     # C. half-hour MoM and sustained trend
@@ -478,7 +530,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             {"question": f"{row['hospital_id']}在{row['timestamp_start']}至{row['timestamp_end']}的{row['indicator_name']}较上一半小时变化多少？", "task_type": "half_hour_mom", "required_indicators": [row["indicator_code"]], "required_time_range": f"{prev['timestamp_start']}/{row['timestamp_end']}", "answer_type": "calculation"},
             {"final_answer": f"{row['hospital_id']}{row['indicator_name']}从{fmt_value(previous, row['unit'])}变化至{fmt_value(current, row['unit'])}，变化值为{fmt_value(delta, row['unit'])}，环比为{pct_text}。", "answer_value": {"hospital_id": row["hospital_id"], "indicator_code": row["indicator_code"], "previous": previous, "current": current, "delta": round(delta, 4), "mom_percent": None if pct is None else round(pct, 2), "unit": row["unit"]}, "calculation": "delta=current-previous；mom_percent=delta/previous*100。", "confidence": "high"},
             evidence, use_litellm)
-        if len(questions) >= max_questions * 0.52:
+        if len(questions) >= max_questions * 0.44:
             break
 
     # C2. sustained trend across three consecutive half-hour windows
@@ -486,7 +538,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
     for row in valid_records:
         series.setdefault((row["hospital_id"], row["indicator_code"]), []).append(row)
     for (hospital_id, indicator_code), items in sorted(series.items()):
-        if not capacity() or len(questions) >= max_questions * 0.58:
+        if not capacity() or len(questions) >= max_questions * 0.50:
             break
         items = sorted(items, key=lambda item: item["timestamp_start"])
         for trio_start in range(len(items) - 2):
@@ -535,7 +587,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
                 {"question": f"{ts_start}至{ts_end}，{question_text}", "task_type": "composite_metric_explanation", "required_indicators": [code for code in [primary_code, second_code, third_code] if code], "required_time_range": f"{ts_start}/{ts_end}", "answer_type": "calculation"},
                 {"final_answer": final, "answer_value": {"hospital_id": hospital, "values": values}, "calculation": "在同一医院同一时间窗内绑定多个指标并进行横向解释；仅作指标共现判断。", "confidence": "medium"},
                 evidence, use_litellm)
-        if len(questions) >= max_questions * 0.66:
+        if len(questions) >= max_questions * 0.58:
             break
 
     # E. anomaly detection and data quality
@@ -548,8 +600,67 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             {"question": f"{row['timestamp_start']}至{row['timestamp_end']}，是否有医院{indicator.name}超过预警阈值或数据异常？", "task_type": "anomaly_detection", "required_indicators": [row["indicator_code"]], "required_time_range": f"{row['timestamp_start']}/{row['timestamp_end']}", "answer_type": "anomaly_label"},
             {"final_answer": f"有。{item['reason']}，异常类型为{item['anomaly_type']}，建议结合业务口径复核。", "answer_value": item, "calculation": "检查data_quality_flag与指标阈值；超过阈值或缺失即标记异常。", "confidence": "high"},
             [item["row_id"]], use_litellm)
-        if len(questions) >= max_questions * 0.80:
+        if len(questions) >= max_questions * 0.70:
             break
+
+    # H. extreme: cross-module joint risk analysis inside a single window
+    risk_codes = [ind.code for ind in INDICATORS if ind.threshold and ind.higher_is_risk]
+    for ts_start, ts_end in sorted({(start, end) for start, end, _ in keys}):
+        if not capacity() or len(questions) >= max_questions * 0.78:
+            break
+        exceed_by_hospital: dict[str, list[dict[str, Any]]] = {}
+        for code in risk_codes:
+            for row in by_window_indicator.get((ts_start, ts_end, code), []):
+                if row["value"] != "" and row_value(row) > indicator_by_code(code).threshold:
+                    exceed_by_hospital.setdefault(row["hospital_id"], []).append(row)
+        joint = {
+            hospital: rows_
+            for hospital, rows_ in exceed_by_hospital.items()
+            if len({indicator_by_code(row["indicator_code"]).module for row in rows_}) >= 2
+        }
+        if not joint:
+            continue
+        joint_hospitals = sorted(joint)
+        evidence_rows_h = [row for hospital in joint_hospitals for row in sorted(joint[hospital], key=lambda item: item["row_id"])]
+        evidence = [row["row_id"] for row in evidence_rows_h]
+        detail = "；".join(
+            f"{hospital}（" + "、".join(f"{row['indicator_name']}{fmt_value(row_value(row), row['unit'])}" for row in sorted(joint[hospital], key=lambda item: item["row_id"])) + "）"
+            for hospital in joint_hospitals
+        )
+        add_task(questions, answers, evidence_map,
+            {"question": f"{ts_start}至{ts_end}，哪些医院同时在至少两个不同管理模块（如费用、药耗、质量安全、重返）出现指标超过预警阈值？请逐家列出涉及的指标和数值。", "task_type": "cross_module_joint_analysis", "required_indicators": risk_codes, "required_time_range": f"{ts_start}/{ts_end}", "answer_type": "calculation"},
+            {"final_answer": f"{ts_start}至{ts_end}，跨模块同时超阈值的医院为：{detail}。该结论仅说明同窗口指标共现，不构成因果或质量优劣判断。", "answer_value": [{"hospital_id": hospital, "exceeded": [{"indicator_code": row["indicator_code"], "value": row_value(row), "unit": row["unit"]} for row in sorted(joint[hospital], key=lambda item: item["row_id"])]} for hospital in joint_hospitals], "calculation": "在同一时间窗内筛选超过阈值的风险指标，再按医院聚合并要求覆盖至少两个不同模块。", "confidence": "high"},
+            evidence, use_litellm)
+
+    # I. extreme: multi-window cross-module comparison for one hospital
+    hospitals_in_records = sorted({row["hospital_id"] for row in valid_records})
+    compare_pairs = [
+        ("outpatient_emergency_visits", "inpatient_drug_ratio"),
+        ("inpatient_surgeries", "inpatient_consumable_ratio"),
+        ("discharges", "return_rate"),
+    ]
+    for hospital_id in hospitals_in_records:
+        if not capacity() or len(questions) >= max_questions * 0.86:
+            break
+        for code_a, code_b in compare_pairs:
+            if not capacity() or len(questions) >= max_questions * 0.86:
+                break
+            rows_a = sorted((row for row in valid_records if row["hospital_id"] == hospital_id and row["indicator_code"] == code_a), key=lambda item: item["timestamp_start"])
+            rows_b = sorted((row for row in valid_records if row["hospital_id"] == hospital_id and row["indicator_code"] == code_b), key=lambda item: item["timestamp_start"])
+            if len(rows_a) < 3 or len(rows_b) < 3:
+                continue
+            indicator_a = indicator_by_code(code_a)
+            indicator_b = indicator_by_code(code_b)
+            mean_a = sum(map(row_value, rows_a)) / len(rows_a)
+            peak_a = max(rows_a, key=row_value)
+            peak_b = max(rows_b, key=row_value)
+            exceed_b = [row for row in rows_b if indicator_b.threshold and row_value(row) > indicator_b.threshold]
+            same_peak = peak_a["timestamp_start"] == peak_b["timestamp_start"]
+            evidence = [row["row_id"] for row in rows_a + rows_b]
+            add_task(questions, answers, evidence_map,
+                {"question": f"纵观全部监测窗口，{hospital_id}的{indicator_a.name}均值是多少？{indicator_b.name}有多少个窗口超过预警阈值？两个指标的峰值是否出现在同一个监测窗口？", "task_type": "multi_window_cross_module_compare", "required_indicators": [code_a, code_b], "required_time_range": f"{rows_a[0]['timestamp_start']}/{rows_a[-1]['timestamp_end']}", "answer_type": "calculation"},
+                {"final_answer": f"{hospital_id}的{indicator_a.name}在{len(rows_a)}个窗口的均值为{fmt_value(mean_a, indicator_a.unit)}；{indicator_b.name}共有{len(exceed_b)}个窗口超过预警阈值；{indicator_a.name}峰值出现在{peak_a['timestamp_start']}，{indicator_b.name}峰值出现在{peak_b['timestamp_start']}，{'两者出现在同一窗口' if same_peak else '两者不在同一窗口'}。", "answer_value": {"hospital_id": hospital_id, "indicator_a": code_a, "mean_a": round(mean_a, 4), "indicator_b": code_b, "exceed_windows_b": len(exceed_b), "peak_a_window": peak_a["timestamp_start"], "peak_b_window": peak_b["timestamp_start"], "same_peak_window": same_peak}, "calculation": "mean_a=指标A全部窗口均值；exceed_windows_b=指标B超阈值窗口数；峰值窗口按最大值定位后比较是否一致。", "confidence": "high"},
+                evidence, use_litellm)
 
     # F. priority ranking
     if capacity() and anomalies:
@@ -612,6 +723,122 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
     return questions, answers, evidence_map, anomalies, [q for q in questions if q["task_type"] == "briefing"]
 
 
+CONTEXT_HEADER = "row_id,hospital_id,timestamp_start,timestamp_end,indicator_code,indicator_name,value,unit,data_quality_flag"
+
+
+def context_line(row: dict[str, Any]) -> str:
+    return f"{row['row_id']},{row['hospital_id']},{row['timestamp_start']},{row['timestamp_end']},{row['indicator_code']},{row['indicator_name']},{row['value']},{row['unit']},{row['data_quality_flag']}"
+
+
+def annotate_module_difficulty(questions: list[dict[str, Any]], answers: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -> None:
+    """Attach module-routing ground truth, module scope, and 4-level difficulty to every DataQA task."""
+    answers_by_id = {answer["question_id"]: answer for answer in answers}
+    for question in questions:
+        codes = sorted({by_id[row_id]["indicator_code"] for row_id in question["evidence_rows"]})
+        modules = modules_for_indicators(codes)
+        if question["task_type"] == "briefing":
+            modules = sorted(set(modules) | {"M13"})
+        question["target_modules"] = modules
+        question["module_scope"] = "single_module" if len(modules) == 1 else "cross_module"
+        question["difficulty"] = DIFFICULTY_BY_TASK[question["task_type"]]
+        answer = answers_by_id[question["question_id"]]
+        answer["target_modules"] = modules
+        answer["module_scope"] = question["module_scope"]
+        answer["difficulty"] = question["difficulty"]
+
+
+def build_context(tier: str, evidence_rows: list[dict[str, Any]], window_rows: dict[tuple[str, str], list[dict[str, Any]]], window_order: list[tuple[str, str]]) -> str:
+    """Build a CSV-style source-data context that always contains the evidence rows.
+
+    short: evidence rows plus a handful of same-window distractors (<=SHORT max tokens).
+    medium: evidence plus same-indicator rows across hospitals (<=MEDIUM max tokens).
+    long: evidence plus full-window dumps, extended across adjacent windows until
+    the estimate strictly exceeds LONG_CONTEXT_MIN_TOKENS.
+    """
+    included = {row["row_id"]: row for row in evidence_rows}
+    anchor_windows = sorted({(row["timestamp_start"], row["timestamp_end"]) for row in evidence_rows})
+    evidence_indicators = {row["indicator_code"] for row in evidence_rows}
+
+    def candidates_for(window: tuple[str, str], same_indicator_only: bool) -> list[dict[str, Any]]:
+        rows = window_rows.get(window, [])
+        if same_indicator_only:
+            rows = [row for row in rows if row["indicator_code"] in evidence_indicators]
+        return sorted(rows, key=lambda item: item["row_id"])
+
+    def current_tokens() -> int:
+        lines = [CONTEXT_HEADER] + [context_line(row) for row in sorted(included.values(), key=lambda item: item["row_id"])]
+        return estimate_tokens("\n".join(lines))
+
+    if tier == "short":
+        budget = SHORT_CONTEXT_MAX_TOKENS
+        pool = [row for window in anchor_windows for row in candidates_for(window, same_indicator_only=True)]
+    elif tier == "medium":
+        budget = MEDIUM_CONTEXT_MAX_TOKENS
+        pool = [row for window in anchor_windows for row in candidates_for(window, same_indicator_only=True)]
+        pool += [row for window in anchor_windows for row in candidates_for(window, same_indicator_only=False)]
+    else:
+        budget = None
+        ordered_windows = anchor_windows + [window for window in window_order if window not in anchor_windows]
+        pool = [row for window in ordered_windows for row in candidates_for(window, same_indicator_only=False)]
+
+    for row in pool:
+        if row["row_id"] in included:
+            continue
+        if budget is not None:
+            line_cost = estimate_tokens(context_line(row)) + 1
+            if current_tokens() + line_cost > budget:
+                break
+            included[row["row_id"]] = row
+        else:
+            included[row["row_id"]] = row
+            if current_tokens() > LONG_CONTEXT_MIN_TOKENS + 200:
+                break
+
+    lines = [CONTEXT_HEADER] + [context_line(row) for row in sorted(included.values(), key=lambda item: item["row_id"])]
+    return "\n".join(lines)
+
+
+def minimal_tier_for_evidence(evidence_rows: list[dict[str, Any]]) -> str:
+    """Smallest context tier whose token budget can hold the mandatory evidence rows."""
+    tokens = estimate_tokens("\n".join([CONTEXT_HEADER] + [context_line(row) for row in evidence_rows]))
+    if tokens > MEDIUM_CONTEXT_MAX_TOKENS:
+        return "long"
+    if tokens > SHORT_CONTEXT_MAX_TOKENS:
+        return "medium"
+    return "short"
+
+
+def attach_contexts(questions: list[dict[str, Any]], answers: list[dict[str, Any]], records: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign each question a short/medium/long source-data context; return deduplicated context rows."""
+    window_rows: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in records:
+        window_rows.setdefault((row["timestamp_start"], row["timestamp_end"]), []).append(row)
+    window_order = sorted(window_rows)
+    answers_by_id = {answer["question_id"]: answer for answer in answers}
+    contexts: list[dict[str, Any]] = []
+    context_ids_by_hash: dict[str, str] = {}
+    tier_rank = {tier: rank for rank, tier in enumerate(CONTEXT_TIERS)}
+    for idx, question in enumerate(questions):
+        evidence_rows = [by_id[row_id] for row_id in question["evidence_rows"]]
+        # Cycle tiers for coverage, but upgrade when the evidence alone cannot fit the tier budget.
+        tier = max(CONTEXT_TIERS[idx % len(CONTEXT_TIERS)], minimal_tier_for_evidence(evidence_rows), key=tier_rank.get)
+        content = build_context(tier, evidence_rows, window_rows, window_order)
+        tokens = estimate_tokens(content)
+        digest = hashlib.sha256(f"{tier}|{content}".encode("utf-8")).hexdigest()[:16]
+        context_id = context_ids_by_hash.get(digest)
+        if context_id is None:
+            context_id = f"CTX_{len(context_ids_by_hash) + 1:06d}"
+            context_ids_by_hash[digest] = context_id
+            contexts.append({"context_id": context_id, "context_tier": tier, "token_estimate": tokens, "format": "csv", "content": content})
+        question["context_id"] = context_id
+        question["context_tier"] = tier
+        question["context_token_estimate"] = tokens
+        answer = answers_by_id[question["question_id"]]
+        answer["context_id"] = context_id
+        answer["context_tier"] = tier
+    return contexts
+
+
 def validate_dataqa(questions: list[dict[str, Any]], answers: list[dict[str, Any]], evidence_map: list[dict[str, Any]], records: list[dict[str, Any]]) -> None:
     record_ids = {row["row_id"] for row in records}
     qids = {q["question_id"] for q in questions}
@@ -626,15 +853,52 @@ def validate_dataqa(questions: list[dict[str, Any]], answers: list[dict[str, Any
             raise ValueError(f"evidence_map references unknown row_ids {missing}")
 
 
+def validate_dataqa_capabilities(questions: list[dict[str, Any]], contexts: list[dict[str, Any]]) -> None:
+    """Check module routing labels, 4-level difficulty coverage, scope mix, and context tiers."""
+    contexts_by_id = {item["context_id"]: item for item in contexts}
+    module_codes = {module.code for module in MODULES}
+    for question in questions:
+        if not question["target_modules"] or not set(question["target_modules"]) <= module_codes:
+            raise ValueError(f"{question['question_id']} has invalid target_modules {question['target_modules']}")
+        if question["difficulty"] not in DIFFICULTY_LEVELS:
+            raise ValueError(f"{question['question_id']} has invalid difficulty {question['difficulty']}")
+        if question["context_tier"] not in CONTEXT_TIERS:
+            raise ValueError(f"{question['question_id']} has invalid context_tier {question['context_tier']}")
+        context = contexts_by_id[question["context_id"]]
+        for row_id in question["evidence_rows"]:
+            if f"\n{row_id}," not in context["content"]:
+                raise ValueError(f"{question['question_id']} context {question['context_id']} is missing evidence row {row_id}")
+    for context in contexts:
+        if context["context_tier"] == "long" and context["token_estimate"] <= LONG_CONTEXT_MIN_TOKENS:
+            raise ValueError(f"long context {context['context_id']} only has {context['token_estimate']} estimated tokens")
+        if context["context_tier"] == "short" and context["token_estimate"] > SHORT_CONTEXT_MAX_TOKENS:
+            raise ValueError(f"short context {context['context_id']} exceeds budget with {context['token_estimate']} estimated tokens")
+        if context["context_tier"] == "medium" and context["token_estimate"] > MEDIUM_CONTEXT_MAX_TOKENS:
+            raise ValueError(f"medium context {context['context_id']} exceeds budget with {context['token_estimate']} estimated tokens")
+        if context["token_estimate"] != estimate_tokens(context["content"]):
+            raise ValueError(f"context {context['context_id']} token_estimate out of sync")
+    if {question["difficulty"] for question in questions} != set(DIFFICULTY_LEVELS):
+        raise ValueError("DataQA must cover easy/medium/hard/extreme difficulties")
+    if {question["context_tier"] for question in questions} != set(CONTEXT_TIERS):
+        raise ValueError("DataQA must cover short/medium/long context tiers")
+    if {question["module_scope"] for question in questions} != {"single_module", "cross_module"}:
+        raise ValueError("DataQA must cover both single_module and cross_module scopes")
+
+
 def write_dataset2(profile: ProfileSpec, max_questions: int, use_litellm: bool, records_input: Path | None = None, anonymize_input: bool = True, export_parquet: Path | None = None) -> None:
     records = ingest_csv(records_input, anonymize_input) if records_input else write_records(profile)
     if records_input:
         with (DATASET2 / "records.csv").open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(records[0].keys())); writer.writeheader(); writer.writerows(records)
     questions, answers, evidence_map, anomalies, briefing_tasks = make_dataqa(records, max_questions, use_litellm)
+    by_id = {row["row_id"]: row for row in records}
+    annotate_module_difficulty(questions, answers, by_id)
+    contexts = attach_contexts(questions, answers, records, by_id)
     validate_dataqa(questions, answers, evidence_map, records)
+    validate_dataqa_capabilities(questions, contexts)
     write_jsonl(DATASET2 / "questions.jsonl", questions)
     write_jsonl(DATASET2 / "answers.jsonl", answers)
+    write_jsonl(DATASET2 / "contexts.jsonl", contexts)
     write_jsonl(DATASET2 / "evidence_map.jsonl", evidence_map)
     write_jsonl(DATASET2 / "anomaly_labels.jsonl", anomalies)
     write_jsonl(DATASET2 / "briefing_tasks.jsonl", briefing_tasks)
@@ -653,8 +917,16 @@ This directory contains reproducible generators and committed artifacts for two 
 
 ## Datasets
 
-1. **Shanghai-HOD-Q37**: question-only natural-language interaction stress test for module routing, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions.
+1. **Shanghai-HOD-Q37**: question-only natural-language interaction stress test for module routing, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions. Questions span four difficulty levels: easy, medium, hard, extreme.
 2. **Shanghai-HOD-DataQA37**: data-grounded QA benchmark with structured synthetic/hybrid data, programmatically computed answers, evidence rows, calculations, anomaly labels, priority ranking, and grounded briefing tasks.
+
+## DataQA37 capability axes
+
+Every DataQA question carries labels for three orthogonal capability axes:
+
+- **Module selection**: `target_modules` (ground-truth dashboard modules, e.g. `M02`/`M07`) and `module_scope` (`single_module` vs `cross_module`). Predictions may report `selected_modules` so the scorer can measure routing before answering.
+- **Difficulty**: `difficulty` in `easy` (direct lookup), `medium` (ranking / half-hour MoM), `hard` (sustained trend, composite explanation, anomaly detection), `extreme` (cross-module joint analysis, multi-window cross-module comparison, priority ranking, grounded briefing).
+- **Context length**: `context_id`/`context_tier` reference `contexts.jsonl`, which holds the CSV-style source rows the model must answer from. Tiers: `short` (≤400 estimated tokens), `medium` (≤1900), `long` (strictly >2000). Every context is guaranteed to contain all evidence rows of its question.
 
 ## Profiles
 
@@ -715,6 +987,12 @@ The strict validator checks public/hidden Q37 separation, cross-file IDs, eviden
 
 These benchmarks evaluate a Shanghai municipal hospital operational dashboard agent. Q37 tests natural-language understanding and safety behavior without exposing answers. DataQA37 tests grounded retrieval, computation, ranking, anomaly detection, priority selection, evidence binding, and management briefing generation.
 
+## Capability axes
+
+- Difficulty ladder (both datasets): `easy` → `medium` → `hard` → `extreme`.
+- Module routing (DataQA37): each question labels `target_modules` and `module_scope` (`single_module`/`cross_module`) so module-selection and grounded answering can be scored separately.
+- Context length (DataQA37): each question binds a source-data context in `contexts.jsonl` at tier `short` (≤400 est. tokens), `medium` (≤1900) or `long` (>2000), always containing the evidence rows.
+
 ## Data policy
 
 All committed records are anonymized synthetic/hybrid examples. Hospital IDs use `SH-MH###`; no patient-level fields are present. The benchmark intentionally avoids patient identity, diagnosis, and hospital-shaming judgments.
@@ -745,7 +1023,9 @@ dataset_2:
     - exact_match
     - numeric_accuracy
     - evidence_accuracy
+    - module_selection_accuracy
   secondary_metrics:
+    - cross_module_selection_recall
     - ndcg_at_5
     - top_k_accuracy
     - anomaly_precision
@@ -754,6 +1034,10 @@ dataset_2:
     - spearman_priority_correlation
     - briefing_factual_consistency
     - briefing_hallucination_rate
+  breakdowns:
+    - accuracy_by_difficulty   # easy / medium / hard / extreme
+    - accuracy_by_context_tier # short / medium / long (>2000 tokens)
+    - accuracy_by_module_scope # single_module / cross_module
 """, encoding="utf-8")
     (EVALUATION / "hallucination_rules.yaml").write_text("""forbidden_claims:
   - invented_numeric_value_without_evidence

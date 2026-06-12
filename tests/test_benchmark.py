@@ -33,6 +33,43 @@ def test_real_ingest_anonymizes_aggregate_rows(tmp_path):
     rows=ingest_csv(path)
     assert rows[0]['hospital_id'].startswith('SH-MH') and rows[0]['source_type']=='real'
 
+def jsonl(path):
+    return [json.loads(line) for line in path.open(encoding='utf-8') if line.strip()]
+
+def test_q37_covers_four_difficulty_levels():
+    hidden=jsonl(ROOT/'dataset_1_question_only/questions_with_hidden_metadata.jsonl')
+    assert {row['difficulty'] for row in hidden}=={'easy','medium','hard','extreme'}
+
+def test_dataqa_has_module_routing_and_scope_labels():
+    questions=jsonl(ROOT/'dataset_2_data_qa/questions.jsonl')
+    assert all(q.get('target_modules') and q.get('module_scope') in {'single_module','cross_module'} for q in questions)
+    scopes={q['module_scope'] for q in questions}
+    assert scopes=={'single_module','cross_module'}
+
+def test_dataqa_covers_four_difficulties_and_extreme_cross_module_tasks():
+    questions=jsonl(ROOT/'dataset_2_data_qa/questions.jsonl')
+    assert {q['difficulty'] for q in questions}=={'easy','medium','hard','extreme'}
+    task_types={q['task_type'] for q in questions}
+    assert {'cross_module_joint_analysis','multi_window_cross_module_compare'} <= task_types
+    extreme={q['task_type'] for q in questions if q['difficulty']=='extreme'}
+    assert {'cross_module_joint_analysis','multi_window_cross_module_compare','priority_ranking','briefing'} <= extreme
+
+def test_dataqa_context_tiers_and_long_context_token_floor():
+    questions=jsonl(ROOT/'dataset_2_data_qa/questions.jsonl')
+    contexts={c['context_id']: c for c in jsonl(ROOT/'dataset_2_data_qa/contexts.jsonl')}
+    assert {q['context_tier'] for q in questions}=={'short','medium','long'}
+    longs=[c for c in contexts.values() if c['context_tier']=='long']
+    assert longs and all(c['token_estimate']>2000 for c in longs)
+    assert all(c['token_estimate']<=400 for c in contexts.values() if c['context_tier']=='short')
+    assert all(c['token_estimate']<=1900 for c in contexts.values() if c['context_tier']=='medium')
+    for q in questions[:200]:
+        content=contexts[q['context_id']]['content']
+        assert all(f"\n{rid}," in content for rid in q['evidence_rows'])
+
+def test_dataqa_answers_carry_scoring_metadata():
+    answers=jsonl(ROOT/'dataset_2_data_qa/answers.jsonl')
+    assert all({'target_modules','module_scope','difficulty','context_tier'} <= set(a) for a in answers)
+
 def test_repository_does_not_commit_binary_dataset_artifacts():
     assert not (ROOT/'indicator_dictionary.xlsx').exists()
     assert not (ROOT/'dataset_2_data_qa/records.parquet').exists()

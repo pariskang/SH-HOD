@@ -71,6 +71,33 @@ QUESTION_TYPES = (
     "spoken_noisy",
 )
 
+# Four-level difficulty ladder shared by Q37 and DataQA37.
+DIFFICULTY_LEVELS = ("easy", "medium", "hard", "extreme")
+
+# Source-data context tiers attached to DataQA37 questions.
+# "long" contexts must exceed LONG_CONTEXT_MIN_TOKENS estimated tokens.
+CONTEXT_TIERS = ("short", "medium", "long")
+LONG_CONTEXT_MIN_TOKENS = 2000
+SHORT_CONTEXT_MAX_TOKENS = 400
+MEDIUM_CONTEXT_MAX_TOKENS = 1900
+
+MODULE_SCOPES = ("single_module", "cross_module")
+
+# DataQA37 task difficulty mapping: easy=point lookup, medium=window math,
+# hard=multi-step reasoning, extreme=cross-module multi-window synthesis.
+DIFFICULTY_BY_TASK = {
+    "direct_lookup": "easy",
+    "cross_hospital_ranking": "medium",
+    "half_hour_mom": "medium",
+    "sustained_trend": "hard",
+    "composite_metric_explanation": "hard",
+    "anomaly_detection": "hard",
+    "cross_module_joint_analysis": "extreme",
+    "multi_window_cross_module_compare": "extreme",
+    "priority_ranking": "extreme",
+    "briefing": "extreme",
+}
+
 QUERY_TYPES = (
     "DATA_LOOKUP",
     "DATA_RANKING",
@@ -91,3 +118,14 @@ def module_by_code(code: str) -> ModuleSpec:
 
 def indicator_by_code(code: str) -> IndicatorSpec:
     return next(indicator for indicator in INDICATORS if indicator.code == code)
+
+
+def modules_for_indicators(codes) -> list[str]:
+    """Map indicator codes to the sorted, deduplicated dashboard modules that own them."""
+    return sorted({indicator_by_code(code).module for code in codes})
+
+
+def estimate_tokens(text: str) -> int:
+    """Conservative token estimate: 1 token per CJK char, 4 chars per token otherwise."""
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return cjk + (len(text) - cjk + 3) // 4

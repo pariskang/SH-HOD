@@ -4,8 +4,16 @@ This directory contains reproducible generators and committed artifacts for two 
 
 ## Datasets
 
-1. **Shanghai-HOD-Q37**: question-only natural-language interaction stress test for module routing, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions.
+1. **Shanghai-HOD-Q37**: question-only natural-language interaction stress test for module routing, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions. Questions span four difficulty levels: easy, medium, hard, extreme.
 2. **Shanghai-HOD-DataQA37**: data-grounded QA benchmark with structured synthetic/hybrid data, programmatically computed answers, evidence rows, calculations, anomaly labels, priority ranking, and grounded briefing tasks.
+
+## DataQA37 capability axes
+
+Every DataQA question carries labels for three orthogonal capability axes:
+
+- **Module selection**: `target_modules` (ground-truth dashboard modules, e.g. `M02`/`M07`) and `module_scope` (`single_module` vs `cross_module`). Predictions may report `selected_modules` so the scorer can measure routing before answering.
+- **Difficulty**: `difficulty` in `easy` (direct lookup), `medium` (ranking / half-hour MoM), `hard` (sustained trend, composite explanation, anomaly detection), `extreme` (cross-module joint analysis, multi-window cross-module comparison, priority ranking, grounded briefing).
+- **Context length**: `context_id`/`context_tier` reference `contexts.jsonl`, which holds the CSV-style source rows the model must answer from. Tiers: `short` (≤400 estimated tokens), `medium` (≤1900), `long` (strictly >2000). Every context is guaranteed to contain all evidence rows of its question.
 
 ## Profiles
 
@@ -59,12 +67,3 @@ pytest -q
 
 The strict validator checks public/hidden Q37 separation, cross-file IDs, evidence integrity, answer contracts, and required task coverage. LiteLLM calls use caching, retries, JSON validation, and a factual-drift guard.
 
-
-## Binary artifact policy
-
-The canonical committed files are reviewable CSV/JSONL/Markdown. Binary `.parquet` and `.xlsx` outputs are intentionally excluded because the pull-request system does not support binary diffs. To export Parquet locally:
-
-```bash
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py \
-  --profile standard --export-parquet /tmp/shanghai-hod-records.parquet
-```

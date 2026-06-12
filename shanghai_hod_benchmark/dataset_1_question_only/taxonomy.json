@@ -144,5 +144,20 @@
     "unsupported_causality",
     "asr_noise"
   ],
+  "difficulty_levels": [
+    "easy",
+    "medium",
+    "hard",
+    "extreme"
+  ],
+  "dataqa_module_scopes": [
+    "single_module",
+    "cross_module"
+  ],
+  "dataqa_context_tiers": {
+    "short": "<= 400 estimated tokens of source rows",
+    "medium": "<= 1900 estimated tokens of source rows",
+    "long": "> 2000 estimated tokens of source rows"
+  },
   "scoring_note": "Only questions_public.jsonl should be sent to evaluated agents; hidden metadata is reserved for offline scoring."
 }

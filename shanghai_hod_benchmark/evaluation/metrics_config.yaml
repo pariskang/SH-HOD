@@ -16,7 +16,9 @@ dataset_2:
     - exact_match
     - numeric_accuracy
     - evidence_accuracy
+    - module_selection_accuracy
   secondary_metrics:
+    - cross_module_selection_recall
     - ndcg_at_5
     - top_k_accuracy
     - anomaly_precision
@@ -25,3 +27,7 @@ dataset_2:
     - spearman_priority_correlation
     - briefing_factual_consistency
     - briefing_hallucination_rate
+  breakdowns:
+    - accuracy_by_difficulty   # easy / medium / hard / extreme
+    - accuracy_by_context_tier # short / medium / long (>2000 tokens)
+    - accuracy_by_module_scope # single_module / cross_module

@@ -164,10 +164,30 @@ def dataset2_score(answer_path: Path, pred_path: Path, tolerance: float = 0.01) 
     ndcg_total = 0.0
     anomaly_tp = anomaly_fp = anomaly_fn = 0
     briefing_total = 0; briefing_consistent = briefing_hallucination = 0.0
+    module_total = module_hit = 0
+    cross_total = 0; cross_recall = 0.0
+    by_difficulty: dict[str, list[int]] = {}
+    by_context_tier: dict[str, list[int]] = {}
+    by_module_scope: dict[str, list[int]] = {}
     for qid, row in gold.items():
         guess = pred.get(qid, {})
-        if values_equal(row.get("answer_value"), guess.get("answer_value"), tolerance):
+        correct = values_equal(row.get("answer_value"), guess.get("answer_value"), tolerance)
+        if correct:
             exact += 1
+        for key, bucket in (("difficulty", by_difficulty), ("context_tier", by_context_tier), ("module_scope", by_module_scope)):
+            label = row.get(key)
+            if label:
+                stats = bucket.setdefault(str(label), [0, 0])
+                stats[0] += 1
+                stats[1] += int(correct)
+        gold_modules = normalize_modules(row.get("target_modules"))
+        if gold_modules:
+            module_total += 1
+            pred_modules = normalize_modules(guess.get("selected_modules", guess.get("target_modules")))
+            module_hit += int(pred_modules == gold_modules)
+            if len(gold_modules) > 1:
+                cross_total += 1
+                cross_recall += len(gold_modules & pred_modules) / len(gold_modules)
         if set(row.get("evidence_rows", [])) == set(guess.get("evidence_rows", [])):
             evidence += 1
         gold_rank = hospital_ranking(row.get("answer_value"))
@@ -188,6 +208,11 @@ def dataset2_score(answer_path: Path, pred_path: Path, tolerance: float = 0.01) 
     return {
         "answer_value_accuracy": exact / total,
         "evidence_accuracy": evidence / total,
+        "module_selection_accuracy": 1.0 if module_total == 0 else module_hit / module_total,
+        "cross_module_selection_recall": 1.0 if cross_total == 0 else cross_recall / cross_total,
+        "accuracy_by_difficulty": {label: stats[1] / stats[0] for label, stats in sorted(by_difficulty.items())},
+        "accuracy_by_context_tier": {label: stats[1] / stats[0] for label, stats in sorted(by_context_tier.items())},
+        "accuracy_by_module_scope": {label: stats[1] / stats[0] for label, stats in sorted(by_module_scope.items())},
         "top5_ranking_accuracy": 1.0 if ranking_total == 0 else ranking_topk / ranking_total,
         "ndcg_at_5": 1.0 if ranking_total == 0 else ndcg_total / ranking_total,
         "anomaly_precision": anomaly_precision,
