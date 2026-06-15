@@ -1,9 +1,11 @@
 """Strict cross-file validation for generated Shanghai-HOD artifacts."""
 from __future__ import annotations
-import argparse, csv, json
+import argparse, csv, json, re
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+HOSPITAL_ID_PATTERN = re.compile(r"SH-MH\d{3}")
 
 
 def jsonl(path: Path) -> list[dict[str, Any]]:
@@ -71,6 +73,29 @@ def validate(root: Path) -> dict[str, Any]:
     trap_types.discard(None)
     assert len(trap_types)>=12, f'hallucination traps too repetitive: {len(trap_types)} distinct trap_type values, need ≥12'
 
+    # --- Briefing factual grounding: every SH-MH### cited in the briefing's final_answer must
+    # appear in the briefing's evidence_rows hospital set. Prevents factual drift in narrative outputs. ---
+    by_row_id={x['row_id']:x for x in records}
+    ungrounded=[]
+    answer_by_qid={a['question_id']:a for a in answers}
+    for q in questions:
+        if q['task_type']!='briefing':
+            continue
+        a=answer_by_qid.get(q['question_id'])
+        if not a:
+            continue
+        ev_hospitals={by_row_id[rid]['hospital_id'] for rid in q.get('evidence_rows',[]) if rid in by_row_id}
+        cited=set(HOSPITAL_ID_PATTERN.findall(a['final_answer']))
+        if cited-ev_hospitals:
+            ungrounded.append((q['question_id'],sorted(cited-ev_hospitals)))
+    assert not ungrounded, f'briefings cite non-evidence hospitals: {ungrounded[:3]}'
+
+    # --- Padding ratio: limit suffix-based variants to ≤40% so unique reasoning content dominates. ---
+    suffixes=['请给出可追溯依据','按管理关注度排序','只基于大屏已有数据回答','如果信息不足请先澄清']
+    padded=sum(1 for h in hidden if any(s in h['question'] for s in suffixes))
+    pad_share=padded/len(hidden) if hidden else 0
+    assert pad_share<=0.40, f'padding share {pad_share:.2%} above 40% — too many suffix variants'
+
     return {
         'q37':len(public),
         'dataqa':len(questions),
@@ -82,6 +107,8 @@ def validate(root: Path) -> dict[str, Any]:
         'q37_difficulty':dict(diff),
         'q37_hard_share':round(hard_share,3),
         'q37_trap_diversity':len(trap_types),
+        'q37_padding_share':round(pad_share,3),
+        'briefing_ungrounded_count':len(ungrounded),
     }
 
 

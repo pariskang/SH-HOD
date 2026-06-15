@@ -252,6 +252,22 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
          ["M03", "M02"],
          ["bed_occupancy_rate", "outpatient_emergency_visits"],
          "ANOMALY_DETECTION"),
+        ("{time}，预约挂号人次同比上升、门急诊人次同比上升、住院手术人次同比下降的医院有哪些？此'前端涌入但后端转化不足'组合应作何种解读？",
+         ["M01", "M02", "M04"],
+         ["appointment_registrations", "outpatient_emergency_visits", "inpatient_surgeries"],
+         "DATA_TREND"),
+        ("{time}，新优药械使用例数和国谈药品使用例数均处于前十的医院中，住院药占比是否仍能保持在阈值0.35以下？请按药占比从低到高列出。",
+         ["M08", "M07"],
+         ["innovative_drug_device_cases", "national_negotiation_drug_cases", "inpatient_drug_ratio"],
+         "DATA_RANKING"),
+        ("{time}，特需国际医疗占比上升且住院均次费用同步上升的医院中，新优药械使用例数是否也偏高？请按三项联合上升的医院数排序。",
+         ["M09", "M06", "M08"],
+         ["special_international_outpatient_ratio", "avg_inpatient_cost", "innovative_drug_device_cases"],
+         "DATA_TREND"),
+        ("{time}，重点病种病例数上升、住院手术人次同步上升、但三类切口感染率未上升的医院有几家？请逐步列出过滤步骤与结果集。",
+         ["M05", "M04", "M11"],
+         ["key_disease_cases", "inpatient_surgeries", "class_iii_incision_infection_rate"],
+         "ANOMALY_DETECTION"),
     ]
     for time in time_phrases[:4]:
         for template, modules, indicators, qt in chain_specs:
@@ -277,6 +293,14 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
          "M10", ["rational_drug_alerts"], "DATA_RANKING"),
         ("在{time}所有时间窗口中，住院均次费用至少有过一次超阈值且后续至少有一个窗口回落到阈值以下的医院有哪些？此类'波动型超标'与'持续型超标'医院应分别如何描述？",
          "M06", ["avg_inpatient_cost"], "ANOMALY_DETECTION"),
+        ("在{time}内，每家医院'药占比与耗材比同窗口同时超标'的窗口数排名前5是哪些？请同时列出每家医院的同时超标窗口数。",
+         ["M07"], ["inpatient_drug_ratio", "inpatient_consumable_ratio"], "DATA_RANKING"),
+        ("在{time}内，三类切口感染率从首窗口到末窗口下降幅度最大的5家医院是哪些？请给出首末数值与下降幅度。",
+         "M11", ["class_iii_incision_infection_rate"], "DATA_RANKING"),
+        ("在{time}的所有时间窗口中，重返率超过阈值的累计窗口数与重返人次累计值同时排名前5的医院有哪些？请说明两个排名是否一致。",
+         "M12", ["return_rate", "return_visits"], "DATA_RANKING"),
+        ("在{time}内，门急诊人次的最大半小时变化幅度（窗口环比绝对值最大）出现在哪家医院的哪个窗口？请同时给出变化方向与幅度。",
+         "M02", ["outpatient_emergency_visits"], "ANOMALY_DETECTION"),
     ]
     for time in time_phrases[:3]:
         for template, modules, indicators, qt in temporal_compound:
@@ -296,6 +320,10 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
         "{time}某医院特需国际医疗占比上升，但住院均次费用并未明显变化，应如何向管理层说明？是否需要单独看自费/医保结构？",
         "{time}多家医院重点病种病例数下降，但住院均次费用上升，这种组合在管理上意味着什么？是否需要区分病种结构变化与单价上升？",
         "{time}多家医院床位使用率接近上限，但出院人次未见明显上升，应如何描述这种状态？需要哪些补充指标？",
+        "{time}某医院新优药械使用例数显著上升，但住院均次费用并未明显变化，是否可以说明'新优药械没有推高费用'？请给出审慎结论的边界。",
+        "{time}某医院合理用药预警数下降但住院药占比上升，这种组合是否说明'预警系统失效'？请给出更可能的解释方向。",
+        "{time}某医院三类切口感染率下降但重返率上升，是否可以说'手术质量提升但其他环节存在问题'？该结论的证据要求是什么？",
+        "{time}多家医院国谈药品使用例数集中上升、但新优药械使用例数同步下降，这种'此消彼长'模式应如何在播报中表述？是否需要避免给出政策评价？",
     ]
     for time in time_phrases[:3]:
         for template in conflict_signals:
@@ -321,6 +349,14 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
          "M03", ["bed_occupancy_rate"], "CLARIFICATION_REQUIRED", "boundary"),
         ("当某指标的原始值落在[阈值-0.001, 阈值+0.001]这个噪声带内时，是否应直接判定超标？回答应说明数据质量与阈值精度之间的关系。",
          "M11", ["class_iii_incision_infection_rate"], "CLARIFICATION_REQUIRED", "boundary"),
+        ("住院药占比阈值为0.35。某医院{time}两个连续窗口分别为0.3501与0.3499。如何描述该医院的合规状态？是否仅看任意单点即可下结论？",
+         "M07", ["inpatient_drug_ratio"], "CLARIFICATION_REQUIRED", "boundary"),
+        ("国谈药品使用例数无固定阈值。某医院{time}显示为0例，是否可视为'未达成政策目标'？回答应说明无阈值指标的处理规则与所需对比基准。",
+         "M08", ["national_negotiation_drug_cases"], "CLARIFICATION_REQUIRED", "boundary"),
+        ("重返率与重返人次两个指标都标记为'higher_is_risk=True'。某医院{time}重返率为0.038（阈值0.04）、重返人次为13（阈值12）。两者方向是否一致？应如何在播报中处理这种分裂判断？",
+         ["M12"], ["return_rate", "return_visits"], "CLARIFICATION_REQUIRED", "boundary"),
+        ("某医院{time}的data_quality_flag为missing。在缺失数据下，能否对该医院的指标做出'超标/未超标'判断？应优先返回什么？",
+         "M13", ["all_indicators"], "CLARIFICATION_REQUIRED", "boundary"),
     ]
     for time in time_phrases[:2]:
         for template, module, indicators, qt, risk in boundary_precision:
@@ -342,6 +378,12 @@ def make_q37_questions(target_count: int) -> list[dict[str, Any]]:
          "M13", ["all_indicators"], "ANOMALY_DETECTION"),
         ("{time}内，住院均次费用始终处于阈值30000元以下、且药占比始终处于阈值0.35以下的医院有几家？",
          ["M06", "M07"], ["avg_inpatient_cost", "inpatient_drug_ratio"], "ANOMALY_DETECTION"),
+        ("{time}内，从未出现门急诊人次窗口环比下降的医院有哪些？请提供至少两个窗口的对比证据。",
+         "M02", ["outpatient_emergency_visits"], "DATA_TREND"),
+        ("{time}内，从未出现住院手术人次低于2例的医院有几家？此结果是否说明所有医院在该窗口均有最低手术量？",
+         "M04", ["inpatient_surgeries"], "ANOMALY_DETECTION"),
+        ("{time}内，在任意窗口都没有进入'住院药占比排名前10'的医院共有几家？这些医院是否构成稳定的低药占比群体？",
+         "M07", ["inpatient_drug_ratio"], "DATA_RANKING"),
     ]
     for time in time_phrases[:3]:
         for template, modules, indicators, qt in negative_enum_q:
@@ -902,6 +944,9 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             if not triggered:
                 clean_hospitals.add(hid)
         evidence = sorted({r["row_id"] for r in records if r["hospital_id"] in clean_hospitals and r["indicator_code"] in risk_indicator_codes})[:25]
+        if not evidence:
+            anchor = sorted({r["row_id"] for r in records if r["indicator_code"] in risk_indicator_codes and r["data_quality_flag"] == "threshold_exceeded"})[:8]
+            evidence = anchor
         add_task(questions, answers, evidence_map,
             {"question": f"在2026-06-03所有监测窗口中，住院药占比、住院耗材比、三类切口感染率、重返率四项指标的data_quality_flag均未出现threshold_exceeded的医院有哪些？",
              "task_type": "negative_enumeration",
@@ -910,7 +955,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
              "answer_type": "enumeration"},
             {"final_answer": f"四项指标在所有窗口均未触发超阈值预警的医院共{len(clean_hospitals)}家：{'、'.join(sorted(clean_hospitals)) if clean_hospitals else '无'}。",
              "answer_value": {"indicator_codes": risk_indicator_codes, "clean_hospital_count": len(clean_hospitals), "clean_hospitals": sorted(clean_hospitals)},
-             "calculation": "对每家医院在四项指标的全部窗口上检查data_quality_flag是否曾为threshold_exceeded；从未触发者纳入答案。",
+             "calculation": "对每家医院在四项指标的全部窗口上检查data_quality_flag是否曾为threshold_exceeded；从未触发者纳入答案。空集时附带anchor evidence_rows以证明扫描已完成。",
              "confidence": "high"},
             evidence, use_litellm)
 
@@ -933,6 +978,13 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
             if not triggered:
                 clean.add(hid)
         evidence = sorted({r["row_id"] for r in records if r["hospital_id"] in clean and r["indicator_code"] == indicator.code})[:15]
+        if not evidence:
+            # Anchor evidence: show 6 rows where this indicator was actually checked, so the
+            # "0 clean hospitals" answer is still traceable to the underlying data scan.
+            anchor = sorted({r["row_id"] for r in records if r["indicator_code"] == indicator.code and r["data_quality_flag"] == "threshold_exceeded"})[:6]
+            if not anchor:
+                anchor = sorted({r["row_id"] for r in records if r["indicator_code"] == indicator.code})[:6]
+            evidence = anchor
         add_task(questions, answers, evidence_map,
             {"question": f"在2026-06-03所有监测窗口中，{indicator.name}从未触发超阈值（阈值{fmt_value(indicator.threshold, indicator.unit)}）的医院共有哪些？",
              "task_type": "negative_enumeration",
@@ -941,7 +993,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
              "answer_type": "enumeration"},
             {"final_answer": f"{indicator.name}在所有窗口均未超过阈值的医院共{len(clean)}家：{'、'.join(sorted(clean)) if clean else '无'}。",
              "answer_value": {"indicator_code": indicator.code, "threshold": indicator.threshold, "clean_hospital_count": len(clean), "clean_hospitals": sorted(clean)},
-             "calculation": "按单指标遍历所有窗口；任一窗口value>threshold即排除该医院；阈值比较使用严格大于。",
+             "calculation": "按单指标遍历所有窗口；任一窗口value>threshold即排除该医院；阈值比较使用严格大于。空集时附带anchor evidence_rows以证明扫描已完成。",
              "confidence": "high"},
             evidence, use_litellm)
 
@@ -1153,12 +1205,15 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
                     break
             if not triggered:
                 clean_hospitals.add(hid)
-        evidence = sorted({r["row_id"] for r in records if r["hospital_id"] in clean_hospitals and r["indicator_code"] in risk_indicator_codes and r["timestamp_start"] == ts_start})[:12]
+        # Limit the citation to ≤10 hospitals so evidence_rows can cover ALL hospitals cited in the answer.
+        cited = sorted(clean_hospitals)[:10]
+        evidence = sorted({r["row_id"] for r in records if r["hospital_id"] in cited and r["indicator_code"] in risk_indicator_codes and r["timestamp_start"] == ts_start})
         if not evidence:
             anchor = [r for r in records if r["indicator_code"] in risk_indicator_codes and r["timestamp_start"] == ts_start][:2]
             evidence = sorted({r["row_id"] for r in anchor})
         if clean_hospitals:
-            final = f"{ts_start}至{ts_end}本窗口未触发任何关键风险指标（药占比/耗材比/感染率/重返率）超阈值预警的医院共{len(clean_hospitals)}家：{'、'.join(sorted(clean_hospitals)[:10])}等。此名单仅说明本窗口运行平稳，并非长期质量评价；建议持续观察。"
+            and_more = "等" if len(clean_hospitals) > len(cited) else ""
+            final = f"{ts_start}至{ts_end}本窗口未触发任何关键风险指标（药占比/耗材比/感染率/重返率）超阈值预警的医院共{len(clean_hospitals)}家：{'、'.join(cited)}{and_more}。此名单仅说明本窗口运行平稳，并非长期质量评价；建议持续观察。"
         else:
             final = f"{ts_start}至{ts_end}本窗口所有医院在至少一项风险指标上触发了超阈值预警，因此无法生成'未触发任何预警'的医院名单。建议结合上一窗口与后续窗口综合判断，不应据此对单一窗口数据作绝对评价。"
         add_task(questions, answers, evidence_map,
@@ -1168,7 +1223,7 @@ def make_dataqa(records: list[dict[str, Any]], max_questions: int, use_litellm: 
              "required_indicators": risk_indicator_codes,
              "required_time_range": f"{ts_start}/{ts_end}",
              "answer_type": "briefing"},
-            {"final_answer": final, "answer_value": {"clean_hospital_count": len(clean_hospitals), "clean_hospitals_sample": sorted(clean_hospitals)[:10], "briefing_subtype": "exclusion_briefing"}, "calculation": "对每家医院在该窗口逐项校验四项指标的data_quality_flag；全部不为threshold_exceeded者纳入。", "confidence": "high"},
+            {"final_answer": final, "answer_value": {"clean_hospital_count": len(clean_hospitals), "clean_hospitals_cited": cited, "clean_hospitals_full_set": sorted(clean_hospitals), "briefing_subtype": "exclusion_briefing"}, "calculation": "对每家医院在该窗口逐项校验四项指标的data_quality_flag；全部不为threshold_exceeded者纳入。evidence_rows覆盖了答案中实际引用的全部医院。", "confidence": "high"},
             evidence, use_litellm)
 
     # G5. Leadership briefing — extremum focus across surgery / key-disease / cost.

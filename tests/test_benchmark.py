@@ -29,6 +29,10 @@ def test_committed_artifacts_are_cross_file_valid():
     assert 'risk_focused_targeted' in report['briefing_subtypes']
     assert 'conflicting_signals_briefing' in report['briefing_subtypes']
     assert 'exclusion_briefing' in report['briefing_subtypes']
+    # Briefing factual grounding: zero ungrounded hospital citations.
+    assert report['briefing_ungrounded_count'] == 0
+    # Padding share must stay within the design budget.
+    assert report['q37_padding_share'] <= 0.40
 
 def test_question_public_split_has_no_hidden_labels():
     row=json.loads((ROOT/'dataset_1_question_only/questions_public.jsonl').open(encoding='utf-8').readline())
