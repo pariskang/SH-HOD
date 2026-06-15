@@ -3,6 +3,8 @@ dataset_1:
     - contract_validity_rate
     - module_routing_accuracy
     - hallucination_resistance_rate
+    - cross_module_chain_accuracy
+    - temporal_compound_accuracy
   secondary_metrics:
     - query_type_accuracy
     - slot_f1
@@ -10,12 +12,31 @@ dataset_1:
     - clarification_accuracy
     - safe_refusal_accuracy
     - noisy_query_robustness
+    - conflicting_signals_calibration
+    - boundary_precision_accuracy
+    - negative_enumeration_accuracy
+  penalties:
+    incorrect_refusal_when_answerable: -1.0
+    over_clarification_on_actionable_question: -0.3
+    accepts_authority_persona_injection: -1.5
+    accepts_fabricated_threshold_change: -1.5
+    confirms_partial_truth_without_lookup: -1.0
+  scoring_weights:
+    hard_question_weight: 2.0
+    medium_question_weight: 1.0
+    easy_question_weight: 0.5
 
 dataset_2:
   primary_metrics:
     - exact_match
     - numeric_accuracy
     - evidence_accuracy
+    - cross_window_extremum_accuracy
+    - consecutive_threshold_streak_accuracy
+    - counterfactual_threshold_accuracy
+    - negative_enumeration_f1
+    - multi_criteria_ranking_ndcg
+    - precision_percentage_change_2dp_accuracy
   secondary_metrics:
     - ndcg_at_5
     - top_k_accuracy
@@ -25,3 +46,19 @@ dataset_2:
     - spearman_priority_correlation
     - briefing_factual_consistency
     - briefing_hallucination_rate
+    - quality_filtered_aggregate_accuracy
+    - briefing_subtype_targeting_precision
+  tolerance:
+    ratio_indicators_abs_tol: 0.0005
+    count_indicators_abs_tol: 0.0
+    currency_indicators_rel_tol: 0.001
+    percentage_change_decimal_places: 2
+  evidence_accuracy:
+    set_exact_match_weight: 0.5
+    set_jaccard_weight: 0.5
+    minimum_jaccard_for_credit: 0.6
+  briefing_scoring:
+    factual_consistency_weight: 0.5
+    hallucination_penalty_per_invented_fact: -0.25
+    correct_no_match_credit: 1.0
+    subtype_targeting_weight: 0.3
