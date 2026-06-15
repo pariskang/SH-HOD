@@ -2,6 +2,12 @@
 
 Shanghai-HOD benchmark workspace for constructing two municipal hospital operational dashboard evaluation datasets.
 
+## Reproduce in Google Colab
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-HOD/blob/main/notebooks/Shanghai_HOD_Colab_Pipeline.ipynb)
+
+[`notebooks/Shanghai_HOD_Colab_Pipeline.ipynb`](notebooks/Shanghai_HOD_Colab_Pipeline.ipynb) is an end-to-end Colab notebook that clones the repo, installs dependencies, configures the **MiniMax API** (OpenAI-compatible), runs a connectivity self-check, generates both datasets via `generate_benchmarks.py --use-litellm`, then strictly validates, unit-tests, visualizes distributions, cross-checks evidence rows against `records.csv`, and demonstrates the scoring harness. Numeric labels stay Python-deterministic; MiniMax only performs fact-guarded surface rewriting, so artifacts are identical with or without the LLM. (The Colab badge resolves once this notebook is on `main`; before then, open it from the feature branch.)
+
 ## Implemented benchmark sets
 
 - **Shanghai-HOD-Q37**: question-only natural-language stress test for module routing, intent recognition, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions.
