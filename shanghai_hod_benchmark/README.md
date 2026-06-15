@@ -1,11 +1,15 @@
 # Shanghai-HOD Benchmark
 
-This directory contains reproducible generators and committed artifacts for two Shanghai municipal hospital operational dashboard benchmarks.
+This directory contains reproducible generators and committed artifacts for two Shanghai municipal hospital operational dashboard benchmarks, **tuned to challenge top-tier LLMs (Claude / GPT / Gemini)**. The committed split keeps a hard-share of ≥40% across both datasets.
 
 ## Datasets
 
-1. **Shanghai-HOD-Q37**: question-only natural-language interaction stress test for module routing, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions.
-2. **Shanghai-HOD-DataQA37**: data-grounded QA benchmark with structured synthetic/hybrid data, programmatically computed answers, evidence rows, calculations, anomaly labels, priority ranking, and grounded briefing tasks.
+1. **Shanghai-HOD-Q37**: question-only natural-language stress test covering 11 question types:
+   - `single_module`, `multi_module`, `cross_module_chain` (3+ modules), `temporal_compound` (cross-window conditions), `conflicting_signals` (contradictory indicator pairs), `boundary_precision` (threshold equality), `negative_enumeration` (no-violation cohorts), `management_open`, `ambiguous_boundary`, `hallucination_trap` (**18 distinct trap types**, no time-window repetition), and `spoken_noisy`.
+2. **Shanghai-HOD-DataQA37**: data-grounded QA benchmark across 15 task types:
+   - Baseline 8: `direct_lookup`, `cross_hospital_ranking`, `half_hour_mom`, `sustained_trend`, `composite_metric_explanation`, `anomaly_detection`, `priority_ranking`, `briefing`.
+   - **7 new hard task types**: `cross_window_extremum`, `consecutive_threshold_streak`, `counterfactual_threshold`, `quality_filtered_aggregate`, `negative_enumeration`, `multi_criteria_ranking`, `precision_percentage_change`.
+   - **5 briefing subtypes**: `standard_executive`, `risk_focused_targeted`, `conflicting_signals_briefing`, `exclusion_briefing`, `leadership_focus`.
 
 ## Profiles
 
@@ -59,12 +63,3 @@ pytest -q
 
 The strict validator checks public/hidden Q37 separation, cross-file IDs, evidence integrity, answer contracts, and required task coverage. LiteLLM calls use caching, retries, JSON validation, and a factual-drift guard.
 
-
-## Binary artifact policy
-
-The canonical committed files are reviewable CSV/JSONL/Markdown. Binary `.parquet` and `.xlsx` outputs are intentionally excluded because the pull-request system does not support binary diffs. To export Parquet locally:
-
-```bash
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py \
-  --profile standard --export-parquet /tmp/shanghai-hod-records.parquet
-```

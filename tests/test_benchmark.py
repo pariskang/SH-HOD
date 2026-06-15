@@ -13,6 +13,22 @@ def test_committed_artifacts_are_cross_file_valid():
     assert report['q37'] >= 600
     assert report['dataqa'] >= 1000
     assert report['records'] >= 37*8*16
+    # Hard-tier benchmark must include all 15 task types (8 baseline + 7 new hard).
+    assert 'cross_window_extremum' in report['task_types']
+    assert 'consecutive_threshold_streak' in report['task_types']
+    assert 'counterfactual_threshold' in report['task_types']
+    assert 'quality_filtered_aggregate' in report['task_types']
+    assert 'negative_enumeration' in report['task_types']
+    assert 'multi_criteria_ranking' in report['task_types']
+    assert 'precision_percentage_change' in report['task_types']
+    # Q37 must skew toward hard (validator threshold is 40%).
+    assert report['q37_hard_share'] >= 0.40
+    # Hallucination traps must be diversified across at least 12 distinct trap_type values.
+    assert report['q37_trap_diversity'] >= 12
+    # Briefing subtypes must include the three new sophisticated formats.
+    assert 'risk_focused_targeted' in report['briefing_subtypes']
+    assert 'conflicting_signals_briefing' in report['briefing_subtypes']
+    assert 'exclusion_briefing' in report['briefing_subtypes']
 
 def test_question_public_split_has_no_hidden_labels():
     row=json.loads((ROOT/'dataset_1_question_only/questions_public.jsonl').open(encoding='utf-8').readline())
